@@ -1,20 +1,24 @@
 name: Crypto Alert Bot
 on:
   schedule:
-    - cron: '*/5 * * * *'
-  workflow_dispatch:
+    - cron: '*/5 * * * *'  # প্রতি ৫ মিনিট পর পর অটো চলবে
+  workflow_dispatch:      # আপনি চাইলে নিজেও বাটন ক্লিক করে চালাতে পারবেন
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
+        
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
+          
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          pip install pandas ccxt requests
+          
       - name: Run script
         env:
           PUSHBULLET_TOKEN: ${{ secrets.PUSHBULLET_TOKEN }}
