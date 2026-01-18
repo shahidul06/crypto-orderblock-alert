@@ -11,13 +11,24 @@ def send_push(title, body):
     data = {'type': 'note', 'title': title, 'body': body}
     requests.post(url, headers=headers, json=data)
 
-def find_precise_ob(df):
-    # শক্তিশালী OB খোঁজা (লাল ক্যান্ডেলের পর শক্তিশালী বুলিশ মুভ)
-    for i in range(len(df)-40, len(df)-5):
-        if df['close'].iloc[i] < df['open'].iloc[i]: # লাল ক্যান্ডেল
-            if df['close'].iloc[i+1] > df['high'].iloc[i] and df['close'].iloc[i+3] > df['high'].iloc[i]:
-                return {'low': df['low'].iloc[i], 'high': df['high'].iloc[i]}
-    return None
+def find_strict_ob(df, tf):
+    # গত ৫০টি ক্যান্ডেল চেক করবে যাতে বড় টাইমফ্রেমের ওবি-ও ধরা পড়ে
+    for i in range(len(df)-50, len(df)-3):
+        # Bullish OB লজিক: রেড ক্যান্ডেলের পর শক্তিশালী বুলিশ ইমপালস
+        if df['close'].iloc[i] < df['open'].iloc[i]:
+            red_body = abs(df['close'].iloc[i] - df['open'].iloc[i])
+            # পরবর্তী ৩টি ক্যান্ডেলের মোট মুভমেন্ট যদি রেড ক্যান্ডেলের ৩ গুণ হয়
+            move_after = df['close'].iloc[i+3] - df['open'].iloc[i+1]
+            
+            if move_after > (red_body * 3):
+                ob_high = df['high'].iloc[i]
+                ob_low = df['low'].iloc[i]
+                
+                # Freshness Check: জোনটি কি আগে টাচ হয়েছে?
+                future_lows = df['low'].iloc[i+1:]
+                if future_lows.min() > ob_high:
+                    return ob_low, ob_high
+    return None, None
 
 def analyze_market(symbol, tf):
     try:
@@ -26,14 +37,14 @@ def analyze_market(symbol, tf):
         df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         
         last_price = df['close'].iloc[-1]
-        ob = find_precise_ob(df)
+        ob_low, ob_high = find_strict_ob(df, tf)
         
-        if ob:
-            # প্রাইস যখন ঠিক জোনের সীমানায় (০.০২% গ্যাপ)
-            if last_price <= (ob['high'] * 1.0002) and last_price >= (ob['low'] * 0.9998):
+        if ob_low and ob_high:
+            # প্রাইস যখন জোনের একদম কাছে বা ভেতরে থাকবে (০.০৩% প্রিসিশন)
+            if last_price <= (ob_high * 1.0003) and last_price >= (ob_low * 0.9997):
                 send_push(f"🎯 OB TOUCH: {symbol} ({tf})", 
                           f"Price is EXACTLY inside your Bullish OB!\n"
-                          f"OB Zone: {ob['low']} - {ob['high']}\n"
+                          f"OB Zone: {round(ob_low, 2)} - {round(ob_high, 2)}\n"
                           f"Current Price: {last_price}\n"
                           f"Check Chart Now!")
 
