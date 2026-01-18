@@ -1,44 +1,66 @@
 import os
+import ccxt
 import requests
 import pandas as pd
-import ccxt
 
 # কনফিগারেশন
-TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
-TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
+PUSHBULLET_TOKEN = os.getenv('PUSHBULLET_TOKEN')
+SYMBOLS = ['BTC/USDT', 'ETH/USDT']
+TIMEFRAMES = ['5m', '15m', '1h']
 
-def send_telegram_message(message):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {
-        'chat_id': TELEGRAM_CHAT_ID,
-        'text': message,
-        'parse_mode': 'Markdown'
-    }
+exchange = ccxt.mexc()
+
+def send_push_notification(title, body):
+    if not PUSHBULLET_TOKEN:
+        print("Pushbullet Token not found!")
+        return
+    
+    url = "https://api.pushbullet.com/v2/pushes"
+    headers = {'Access-Token': PUSHBULLET_TOKEN, 'Content-Type': 'application/json'}
+    data = {'type': 'note', 'title': title, 'body': body}
+    
+    response = requests.post(url, headers=headers, json=data)
+    if response.status_code == 200:
+        print("Notification sent!")
+    else:
+        print(f"Error: {response.text}")
+
+def analyze_market(symbol, tf):
     try:
-        response = requests.post(url, json=payload)
-        print(f"Telegram Response: {response.text}")
+        bars = exchange.fetch_ohlcv(symbol, timeframe=tf, limit=50)
+        df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        last_price = df['close'].iloc[-1]
+        
+        signals = []
+
+        # ১. হাই ভলিউম চেক
+        avg_volume = df['volume'].tail(20).mean()
+        if df['volume'].iloc[-1] > (avg_volume * 1.5):
+            signals.append("- High Volume OB")
+
+        # ২. FVG চেক
+        if df['low'].iloc[-1] > df['high'].iloc[-3]:
+            signals.append("- Bullish FVG")
+        elif df['high'].iloc[-1] < df['low'].iloc[-3]:
+            signals.append("- Bearish FVG")
+
+        # ৩. CHoCH চেক
+        recent_high = df['high'].iloc[-15:-1].max()
+        if df['close'].iloc[-1] > recent_high:
+            signals.append("- CHoCH Bullish")
+
+        if signals:
+            title = f"Signal: {symbol} ({tf})"
+            body = f"Price: {last_price}\n" + "\n".join(signals)
+            send_push_notification(title, body)
+
     except Exception as e:
         print(f"Error: {e}")
 
-def run_demo():
-    print("ডেমো নোটিফিকেশন পাঠানো হচ্ছে...")
-    
-    # এটি একটি ডেমো মেসেজ যা সরাসরি যাবে
-    demo_msg = (
-        "🔔 *SMC Alert: Demo Notification*\n"
-        "━━━━━━━━━━━━━━━━━━\n"
-        "✅ *Connection:* Successful\n"
-        "📊 *Status:* Script is Running\n"
-        "🚀 *Strategy:* Order Block & FVG\n"
-        "━━━━━━━━━━━━━━━━━━\n"
-        "আপনার বট এখন মার্কেট সিগন্যাল পাঠানোর জন্য প্রস্তুত!"
-    )
-    
-    send_telegram_message(demo_msg)
-
 if __name__ == "__main__":
-    # টোকেন ও আইডি আছে কিনা চেক করা
-    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        print("Error: TELEGRAM_TOKEN বা TELEGRAM_CHAT_ID পাওয়া যায়নি! GitHub Secrets চেক করুন।")
-    else:
-        run_demo()
+    # কানেকশন টেস্ট করার জন্য একটি মেসেজ
+    send_push_notification("System Active", "বট এখন Pushbullet এর সাথে কানেক্টেড!")
+    
+    for symbol in SYMBOLS:
+        for tf in TIMEFRAMES:
+            analyze_market(symbol, tf)
